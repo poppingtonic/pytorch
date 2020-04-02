@@ -745,17 +745,13 @@ bool isBiasOfConvOrLinear(Value* v) {
   return result;
 }
 
-bool isWeightOfConvOrLinear(Value* v) {
-  bool result = matchArgPattern(
-      v,
-      AtenFuncArgs({{"conv2d", 1}, {"conv3d", 1}, {"linear", 1}}),
-      CallFuncArgs({{"linear", 2}}));
-  return result;
-}
-
 // Go through the CallMethod graph to check if the value is Weight.
 bool isWeight(Module& module, Value* v) {
-  if (isWeightOfConvOrLinear(v)) {
+  bool is_weight_of_fn = matchArgPattern(
+      v,
+      AtenFuncArgs({{"conv2d", 1}, {"conv3d", 1}, {"linear", 1}, {"lstm", 2}}),
+      CallFuncArgs({{"linear", 2}}));
+  if (is_weight_of_fn) {
     return true;
   }
   c10::optional<bool> result;
@@ -782,9 +778,8 @@ bool isWeight(Module& module, Value* v) {
   return result.has_value() ? result.value() : false;
 }
 
-Module getObserverModuleFor(Value* v, const QConfig& qconfig) {
-  return isWeightOfConvOrLinear(v) ? std::get<1>(qconfig)
-                                   : std::get<0>(qconfig);
+Module getObserverModuleFor(Module& m, Value* v, const QConfig& qconfig) {
+  return isWeight(m, v) ? std::get<1>(qconfig) : std::get<0>(qconfig);
 }
 
 ModuleMethodVector InsertObserversHelper::getInvokedMethods(
@@ -999,6 +994,12 @@ void InsertObserversHelper::preprocess(
   }
 }
 
+// Returns true if the value is the weight to LSTM operator.
+bool isDynamicLSTMWeight(Value* v, Use use, bool is_dynamic) {
+  return is_dynamic && use.user->kind() == Symbol::aten("lstm") &&
+      (use.offset == 2);
+}
+
 // TODO: remove this as a class method
 bool InsertObserversHelper::valueNeedsToBeQuantized(Value* v) {
   if (isBiasOfConvOrLinear(v) ||
@@ -1016,7 +1017,7 @@ bool InsertObserversHelper::valueNeedsToBeQuantized(Value* v) {
   }
   // Check whether user is quantizable
   for (const auto& use : v->uses()) {
-    if (nodeQuantizable(use.user)) {
+    if (nodeQuantizable(use.user) || isDynamicLSTMWeight(v, use, is_dynamic)) {
       return true;
     }
   }
@@ -1042,7 +1043,7 @@ void InsertObserversHelper::fillValueObserverMap(
   auto qconfig = *qconfig_opt;
   for (auto* v : graph->inputs()) {
     if (valueNeedsToBeQuantized(v)) {
-      observer_for_value_[v] = getObserverModuleFor(v, qconfig);
+      observer_for_value_[v] = getObserverModuleFor(module, v, qconfig);
     }
   }
 
@@ -1053,7 +1054,7 @@ void InsertObserversHelper::fillValueObserverMap(
     for (Node* n : b->nodes()) {
       for (Value* v : n->outputs()) {
         if (valueNeedsToBeQuantized(v)) {
-          observer_for_value_[v] = getObserverModuleFor(v, qconfig);
+          observer_for_value_[v] = getObserverModuleFor(module, v, qconfig);
         }
       }
 
