@@ -44,18 +44,7 @@ static inline Tensor to_impl(const Tensor& self, const TensorOptions& options, b
   return r;
 }
 
-Tensor to(
-  const Tensor& self,
-  const TensorOptions& options_,
-  bool non_blocking,
-  bool copy,
-  c10::optional<c10::MemoryFormat> optional_memory_format
-) {
-  TORCH_CHECK(
-    !(options_.has_memory_format() && optional_memory_format.has_value()),
-    "Cannot set memory_format both in TensorOptions and explicit argument; please delete "
-    "the redundant setter.");
-  auto options = options_.merge_in(TensorOptions().memory_format(optional_memory_format));
+Tensor to(const Tensor& self, const TensorOptions& options, bool non_blocking, bool copy) {
 
   TORCH_CHECK(options.requires_grad_opt() == c10::nullopt,
            "to(options) expects unset requires_grad flag, but got "
