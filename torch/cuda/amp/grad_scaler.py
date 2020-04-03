@@ -9,7 +9,7 @@ class _MultiDeviceReplicator(object):
     Lazily serves copies of a tensor to requested devices.  Copies are cached per-device.
     """
     def __init__(self, master_tensor):
-        assert master_tensor.is_cuda
+        master_tensor.cuda()
         self.master = master_tensor
         self._per_device_tensors = {}
 
@@ -143,7 +143,7 @@ class GradScaler(object):
 
         # Short-circuit for the common case.
         if isinstance(outputs, torch.Tensor):
-            assert outputs.is_cuda
+            outputs.cuda()
             if self._scale is None:
                 self._lazy_init_scale_growth_tracker(outputs.device)
             return outputs * self._scale.to(device=outputs.device, non_blocking=True)
@@ -153,7 +153,7 @@ class GradScaler(object):
 
         def apply_scale(val):
             if isinstance(val, torch.Tensor):
-                assert val.is_cuda
+                val.cuda()
                 if self._scale is None:
                     self._lazy_init_scale_growth_tracker(val.device)
                 if stash[0] is None:
@@ -171,8 +171,9 @@ class GradScaler(object):
         per_device_found_inf = _MultiDeviceReplicator(found_inf)
 
         for group in optimizer.param_groups:
-            for param in group["params"]:
+            for param in group:
                 if param.grad is not None:
+                    param.grad.cuda()
                     if (not allow_fp16) and param.grad.dtype == torch.float16:
                         raise ValueError("Attempting to unscale FP16 gradients.")
                     else:
